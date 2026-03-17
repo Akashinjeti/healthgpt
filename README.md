@@ -1,57 +1,58 @@
-# 🏥 HealthGPT — AI Health Assistant
-### by Akash Kumar Injeti | Free for everyone in India 🇮🇳
+# 🏥 HealthGPT ULTRA
+### by Akash Kumar Injeti | AI Health Assistant for India 🇮🇳
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://your-app.streamlit.app)
-![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)
+[![Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://your-app.streamlit.app)
 ![Free](https://img.shields.io/badge/Cost-100%25%20Free-green)
-![Languages](https://img.shields.io/badge/Languages-English%20%2B%20Telugu-orange)
+![Languages](https://img.shields.io/badge/Languages-4-orange)
+![Features](https://img.shields.io/badge/Features-8+-blue)
 
-An AI-powered Health Assistant built for India — works in **English and Telugu**.
-Completely free, no credit card needed.
-
-> ⚠️ **Disclaimer:** This app provides AI-generated health information for educational purposes only. It is NOT a substitute for professional medical advice. Always consult a qualified doctor.
+> ⚠️ **Disclaimer:** Educational purposes only. Not a substitute for professional medical advice.
 
 ---
 
-## ✨ Features
+## ✨ Full Feature List
 
-| Feature | What it does |
-|---------|-------------|
-| 🩺 **Symptom Checker** | Describe symptoms → AI suggests possible causes + home care tips |
-| 💊 **Medicine Info** | Search any medicine → plain language explanation |
-| 🥗 **Diet Planner** | Age + condition → personalized Indian diet plan |
-| 🚨 **Emergency Guide** | Step-by-step first aid for 12 emergencies |
-| 🌍 **Bilingual** | Full English + Telugu support |
+| Feature | Description |
+|---------|------------|
+| 🏠 **Landing Page** | Beautiful product landing page |
+| 🔐 **User Login** | Sign up / login with saved history |
+| 🩺 **Symptom Checker** | AI suggests causes + home care |
+| 💊 **Medicine Info** | Plain language medicine explanation |
+| 🥗 **Diet Planner** | Indian diet plans for 9 conditions |
+| 📄 **PDF Analyzer** | Upload blood test → AI explains it |
+| 💬 **AI Chat** | ChatGPT-style health conversation |
+| 🎤 **Voice Input** | Speak your symptoms (Chrome) |
+| 📰 **Health News** | AI-generated India health news |
+| 🚨 **Emergency Guide** | First aid for 12 emergencies |
+| 🧮 **BMI Calculator** | BMI + AI personalized tips |
+| 📊 **History Tracker** | Save & export all health activity |
+| 🌍 **4 Languages** | English, Telugu, Hindi, Tamil |
 
 ---
 
 ## 🚀 Run Locally
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/healthgpt.git
-cd healthgpt
+git clone https://github.com/YOUR_USERNAME/healthgpt-ultra.git
+cd healthgpt-ultra
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
+Demo login: **username:** `demo` / **password:** `demo123`
+
 ---
 
-## 🔑 Get Free API Key
-1. Go to **[console.groq.com](https://console.groq.com)**
-2. Sign up free
-3. Create API Key (starts with `gsk_...`)
-4. Paste into the app
+## 🔑 Free API Key
+→ **[console.groq.com](https://console.groq.com)** — sign up free, no credit card
 
 ---
 
 ## 🛠️ Tech Stack
-- **Python** + **Streamlit** — UI
-- **Groq API** — Free LLM inference
-- **LLaMA 3.3 70B** — AI model
-- **English + Telugu** — Bilingual support
+Python · Streamlit · Groq API · LLaMA 3.3 70B · HTML5 Speech API
 
 ---
 
-Built by **Akash Kumar Injeti** — Data Science & AI
+Built by **Akash Kumar Injeti** — Data Science & AI 🚀
 
-*#Python #AI #HealthAI #DataScience #BuildInPublic #Telugu #India*
+*#Python #AI #HealthAI #DataScience #BuildInPublic #India #Telugu*
