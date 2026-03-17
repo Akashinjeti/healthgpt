@@ -11,6 +11,88 @@ import requests
 import json
 import hashlib
 from datetime import datetime
+import io
+
+# ─────────────────────────────────────────────
+#  PDF Generator (pure Python, no library)
+# ─────────────────────────────────────────────
+def generate_pdf_bytes(title, content, author="Akash Kumar Injeti"):
+    """Generate a simple PDF as bytes using pure Python."""
+    lines = []
+    lines.append(f"HealthGPT ULTRA — {title}")
+    lines.append(f"Generated: {datetime.now().strftime('%d %B %Y, %I:%M %p')}")
+    lines.append(f"Powered by Akash Kumar Injeti | healthgptultra.streamlit.app")
+    lines.append("=" * 60)
+    lines.append("")
+    # Clean content
+    clean = content.replace("**", "").replace("*", "").replace("#", "")
+    for line in clean.split("\n"):
+        lines.append(line)
+    lines.append("")
+    lines.append("=" * 60)
+    lines.append("DISCLAIMER: This is AI-generated health information for")
+    lines.append("educational purposes only. Not a substitute for medical advice.")
+    lines.append("Always consult a qualified doctor.")
+    lines.append("=" * 60)
+    lines.append(f"© HealthGPT ULTRA by Akash Kumar Injeti")
+
+    full_text = "\n".join(lines)
+
+    # Build minimal valid PDF
+    objects = []
+
+    # Object 1: Catalog
+    objects.append(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n")
+
+    # Object 3: Font
+    objects.append(b"3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>\nendobj\n")
+
+    # Object 4: Page content
+    content_lines = []
+    content_lines.append("BT")
+    content_lines.append("/F1 10 Tf")
+    content_lines.append("40 780 Td")
+    content_lines.append("14 TL")
+    for line in lines:
+        safe = line.replace("\\","\\\\").replace("(","\\(").replace(")","\\)")
+        safe = ''.join(c if ord(c) < 128 else '?' for c in safe)
+        if len(safe) > 100:
+            safe = safe[:100] + "..."
+        content_lines.append(f"({safe}) Tj T*")
+    content_lines.append("ET")
+    content_str = "\n".join(content_lines).encode("latin-1", errors="replace")
+
+    obj4 = b"4 0 obj\n<< /Length " + str(len(content_str)).encode() + b" >>\nstream\n"
+    obj4 += content_str + b"\nendstream\nendobj\n"
+    objects.append(obj4)
+
+    # Object 2: Pages
+    objects.append(b"2 0 obj\n<< /Type /Pages /Kids [5 0 R] /Count 1 >>\nendobj\n")
+
+    # Object 5: Page
+    objects.append(b"5 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Contents 4 0 R /Resources << /Font << /F1 3 0 R >> >> >>\nendobj\n")
+
+    # Build PDF
+    pdf = b"%PDF-1.4\n"
+    offsets = []
+    for obj in objects:
+        offsets.append(len(pdf))
+        pdf += obj
+
+    xref_offset = len(pdf)
+    pdf += b"xref\n"
+    pdf += f"0 {len(objects)+1}\n".encode()
+    pdf += b"0000000000 65535 f \n"
+    for off in offsets:
+        pdf += f"{off:010d} 00000 n \n".encode()
+
+    pdf += b"trailer\n"
+    pdf += f"<< /Size {len(objects)+1} /Root 1 0 R >>\n".encode()
+    pdf += b"startxref\n"
+    pdf += f"{xref_offset}\n".encode()
+    pdf += b"%%EOF"
+
+    return pdf
 
 # ─────────────────────────────────────────────
 #  Page Config
@@ -336,6 +418,7 @@ for key, default in {
     "chat_history": [],
     "health_history": [],
     "voice_text": "",
+    "api_key": "",
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -507,23 +590,31 @@ elif st.session_state.page == "auth":
             login_user = st.text_input("LUser", placeholder="Enter your username", label_visibility="collapsed", key="lu")
             st.markdown('<div class="section-label">Password</div>', unsafe_allow_html=True)
             login_pass = st.text_input("LPass", type="password", placeholder="Enter your password", label_visibility="collapsed", key="lp")
+            st.markdown('<div class="section-label">🔑 Groq API Key</div>', unsafe_allow_html=True)
+            login_api = st.text_input("LApi", type="password", placeholder="gsk_... (get free at console.groq.com)", label_visibility="collapsed", key="la")
+            st.markdown("<div style='font-size:0.72rem;color:#8b949e'>Free API key at <a href='https://console.groq.com' target='_blank' style='color:#0ea5e9'>console.groq.com</a> — no credit card needed</div>", unsafe_allow_html=True)
 
             if st.button("🔑  Login", use_container_width=True, type="primary", key="login_btn"):
-                users = st.session_state.users
-                if login_user in users and users[login_user]["password"] == hash_pw(login_pass):
-                    st.session_state.logged_in = True
-                    st.session_state.username = login_user
-                    st.session_state.page = "app"
-                    st.rerun()
-                elif login_user == "demo" and login_pass == "demo123":
-                    st.session_state.logged_in = True
-                    st.session_state.username = "Demo User"
-                    st.session_state.page = "app"
-                    st.rerun()
+                if not login_api:
+                    st.error("⚠️  Please enter your Groq API key.")
                 else:
-                    st.error("❌  Invalid username or password.")
+                    users = st.session_state.users
+                    if login_user in users and users[login_user]["password"] == hash_pw(login_pass):
+                        st.session_state.logged_in = True
+                        st.session_state.username = login_user
+                        st.session_state.api_key = login_api
+                        st.session_state.page = "app"
+                        st.rerun()
+                    elif login_user == "demo" and login_pass == "demo123":
+                        st.session_state.logged_in = True
+                        st.session_state.username = "Demo User"
+                        st.session_state.api_key = login_api
+                        st.session_state.page = "app"
+                        st.rerun()
+                    else:
+                        st.error("❌  Invalid username or password.")
 
-            st.markdown("<div style='font-size:0.78rem;color:#8b949e;text-align:center;margin-top:0.5rem'>Demo account: username <b style='color:#0ea5e9'>demo</b> / password <b style='color:#0ea5e9'>demo123</b></div>", unsafe_allow_html=True)
+            st.markdown("<div style='font-size:0.78rem;color:#8b949e;text-align:center;margin-top:0.5rem'>Demo: username <b style='color:#0ea5e9'>demo</b> / password <b style='color:#0ea5e9'>demo123</b></div>", unsafe_allow_html=True)
 
         with auth_tab2:
             st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
@@ -533,10 +624,15 @@ elif st.session_state.page == "auth":
             reg_user = st.text_input("RUser", placeholder="Choose a username", label_visibility="collapsed", key="ru")
             st.markdown('<div class="section-label">Password</div>', unsafe_allow_html=True)
             reg_pass = st.text_input("RPass", type="password", placeholder="Choose a password", label_visibility="collapsed", key="rp")
+            st.markdown('<div class="section-label">🔑 Groq API Key</div>', unsafe_allow_html=True)
+            reg_api = st.text_input("RApi", type="password", placeholder="gsk_... (get free at console.groq.com)", label_visibility="collapsed", key="ra")
+            st.markdown("<div style='font-size:0.72rem;color:#8b949e'>Free at <a href='https://console.groq.com' target='_blank' style='color:#0ea5e9'>console.groq.com</a></div>", unsafe_allow_html=True)
 
             if st.button("✨  Create Account", use_container_width=True, type="primary", key="reg_btn"):
                 if not reg_name or not reg_user or not reg_pass:
                     st.error("⚠️  Please fill in all fields.")
+                elif not reg_api:
+                    st.error("⚠️  Please enter your Groq API key.")
                 elif reg_user in st.session_state.users:
                     st.error("❌  Username already taken.")
                 elif len(reg_pass) < 4:
@@ -547,6 +643,7 @@ elif st.session_state.page == "auth":
                     }
                     st.session_state.logged_in = True
                     st.session_state.username = reg_user
+                    st.session_state.api_key = reg_api
                     st.session_state.page = "app"
                     st.success(f"🎉 Welcome {reg_name}!")
                     st.rerun()
@@ -584,9 +681,13 @@ elif st.session_state.page == "app":
         </div>
         """, unsafe_allow_html=True)
 
-        st.markdown('<div class="section-label">🔑 Groq API Key</div>', unsafe_allow_html=True)
-        api_key = st.text_input("API", type="password", placeholder="gsk_...", label_visibility="collapsed")
-        st.markdown("<div style='font-size:0.72rem;color:#8b949e'>Free at <a href='https://console.groq.com' target='_blank' style='color:#0ea5e9'>console.groq.com</a></div>", unsafe_allow_html=True)
+        st.markdown('<div class="section-label">🔑 API Key</div>', unsafe_allow_html=True)
+        st.markdown(f"<div style='background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:8px 12px;font-size:0.78rem;color:#4ade80'>✅ API Key connected</div>", unsafe_allow_html=True)
+        if st.button("🔄 Change API Key", key="change_api", use_container_width=True):
+            st.session_state.page = "auth"
+            st.session_state.logged_in = False
+            st.rerun()
+        api_key = st.session_state.api_key
 
         st.divider()
 
@@ -675,7 +776,12 @@ End with: This is AI information only — not a substitute for professional medi
                         r = call_groq(api_key, prompt)
                         st.markdown(f'<div class="ai-message">{r}</div>', unsafe_allow_html=True)
                         save_history("🩺 Symptom Check", f"{symptoms[:60]}...")
-                        st.download_button("⬇️ Download", data=r.encode(), file_name="symptom_report.txt", mime="text/plain")
+                        col_dl1, col_dl2 = st.columns(2)
+                        with col_dl1:
+                            st.download_button("⬇️ Download TXT", data=r.encode(), file_name="symptom_report.txt", mime="text/plain", key="sym_txt")
+                        with col_dl2:
+                            pdf_bytes = generate_pdf_bytes("Symptom Report", r)
+                            st.download_button("📄 Download PDF", data=pdf_bytes, file_name="symptom_report.pdf", mime="application/pdf", key="sym_pdf")
                     except Exception as e: st.error(f"❌ {e}")
 
     # ── TAB 2 Medicine ──
@@ -698,7 +804,12 @@ Always: Follow doctor's prescription."""
                         r = call_groq(api_key, prompt)
                         st.markdown(f'<div class="medicine-message">{r}</div>', unsafe_allow_html=True)
                         save_history("💊 Medicine Info", f"Medicine: {med}")
-                        st.download_button("⬇️ Download", data=r.encode(), file_name=f"{med}_info.txt", mime="text/plain")
+                        col_dl1, col_dl2 = st.columns(2)
+                        with col_dl1:
+                            st.download_button("⬇️ Download TXT", data=r.encode(), file_name=f"{med}_info.txt", mime="text/plain", key="med_txt")
+                        with col_dl2:
+                            pdf_bytes = generate_pdf_bytes(f"Medicine Info — {med}", r)
+                            st.download_button("📄 Download PDF", data=pdf_bytes, file_name=f"{med}_info.pdf", mime="application/pdf", key="med_pdf")
                     except Exception as e: st.error(f"❌ {e}")
 
     # ── TAB 3 Diet ──
@@ -733,7 +844,12 @@ Always: Follow doctor's prescription."""
                         r = call_groq(api_key, prompt)
                         st.markdown(f'<div class="diet-message">{r}</div>', unsafe_allow_html=True)
                         save_history("🥗 Diet Plan", f"{cond} | {fp}")
-                        st.download_button("⬇️ Download", data=r.encode(), file_name="diet_plan.txt", mime="text/plain")
+                        col_dl1, col_dl2 = st.columns(2)
+                        with col_dl1:
+                            st.download_button("⬇️ Download TXT", data=r.encode(), file_name="diet_plan.txt", mime="text/plain", key="diet_txt")
+                        with col_dl2:
+                            pdf_bytes = generate_pdf_bytes("My Personalized Diet Plan", r)
+                            st.download_button("📄 Download PDF", data=pdf_bytes, file_name="diet_plan.pdf", mime="application/pdf", key="diet_pdf")
                     except Exception as e: st.error(f"❌ {e}")
 
     # ── TAB 4 Emergency ──
@@ -757,7 +873,12 @@ Simple language — no medical training required."""
                         r = call_groq(api_key, prompt)
                         st.markdown(f'<div class="emergency-message">{r}</div>', unsafe_allow_html=True)
                         save_history("🚨 Emergency", f"{etype}")
-                        st.download_button("⬇️ Download", data=r.encode(), file_name="emergency_guide.txt", mime="text/plain")
+                        col_dl1, col_dl2 = st.columns(2)
+                        with col_dl1:
+                            st.download_button("⬇️ Download TXT", data=r.encode(), file_name="emergency_guide.txt", mime="text/plain", key="emg_txt")
+                        with col_dl2:
+                            pdf_bytes = generate_pdf_bytes(f"Emergency Guide — {etype}", r)
+                            st.download_button("📄 Download PDF", data=pdf_bytes, file_name="emergency_guide.pdf", mime="application/pdf", key="emg_pdf")
                     except Exception as e: st.error(f"❌ {e}")
         st.markdown("""<div style="background:#1a0a0a;border:1px solid #7f1d1d;border-radius:12px;padding:1rem;margin-top:1rem;font-size:0.88rem;color:#fca5a5;line-height:2">
         🚑 <strong>108</strong> Ambulance &nbsp;|&nbsp; 🚔 <strong>100</strong> Police &nbsp;|&nbsp; 🚒 <strong>101</strong> Fire &nbsp;|&nbsp; 🆘 <strong>112</strong> National</div>""", unsafe_allow_html=True)
@@ -789,7 +910,12 @@ Simple language. End with: Please consult a doctor for proper diagnosis."""
                             r = call_groq(api_key, prompt, max_tokens=2000)
                             st.markdown(f'<div class="pdf-message">{r}</div>', unsafe_allow_html=True)
                             save_history("📄 Report Analysis", f"{rtype}")
-                            st.download_button("⬇️ Download", data=r.encode(), file_name="report_analysis.txt", mime="text/plain")
+                            col_dl1, col_dl2 = st.columns(2)
+                            with col_dl1:
+                                st.download_button("⬇️ Download TXT", data=r.encode(), file_name="report_analysis.txt", mime="text/plain", key="pdf_txt")
+                            with col_dl2:
+                                pdf_bytes = generate_pdf_bytes(f"Medical Report Analysis — {rtype}", r)
+                                st.download_button("📄 Download PDF", data=pdf_bytes, file_name="report_analysis.pdf", mime="application/pdf", key="pdf_pdf")
                     except Exception as e: st.error(f"❌ {e}")
 
     # ── TAB 6 Chat ──
@@ -1018,6 +1144,13 @@ Focus on actionable health information."""
                         tips = call_groq(api_key, f"{lang_inst}. Give 5 specific health tips for age {ba}, BMI {bmi} ({cat}). Be practical.", max_tokens=500)
                         st.markdown(f'<div class="ai-message">{tips}</div>', unsafe_allow_html=True)
                         save_history("🧮 BMI Check", f"BMI: {bmi} — {cat}")
+                        bmi_report = f"BMI Score: {bmi}\nCategory: {cat}\nWeight: {bw}kg | Height: {bh}cm | Age: {ba}\nIdeal Weight Range: {ideal_min}–{ideal_max}kg\n\nAI Health Tips:\n{tips}"
+                        col_dl1, col_dl2 = st.columns(2)
+                        with col_dl1:
+                            st.download_button("⬇️ Download TXT", data=bmi_report.encode(), file_name="bmi_report.txt", mime="text/plain", key="bmi_txt")
+                        with col_dl2:
+                            pdf_bytes = generate_pdf_bytes("BMI Report & Health Tips", bmi_report)
+                            st.download_button("📄 Download PDF", data=pdf_bytes, file_name="bmi_report.pdf", mime="application/pdf", key="bmi_pdf")
                     except: pass
 
         st.divider()
