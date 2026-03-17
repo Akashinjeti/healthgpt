@@ -10,8 +10,39 @@ import streamlit as st
 import requests
 import json
 import hashlib
+import os
 from datetime import datetime
 import io
+
+# ─────────────────────────────────────────────
+#  Persistent User Storage (JSON file)
+# ─────────────────────────────────────────────
+USERS_FILE = "users_db.json"
+HISTORY_FILE = "history_db.json"
+
+def load_users():
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, "r") as f:
+                return json.load(f)
+        except: return {}
+    return {}
+
+def save_users(users):
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=2)
+
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, "r") as f:
+                return json.load(f)
+        except: return []
+    return []
+
+def save_history_file(history):
+    with open(HISTORY_FILE, "w") as f:
+        json.dump(history, f, indent=2)
 
 # ─────────────────────────────────────────────
 #  PDF Generator (pure Python, no library)
@@ -410,18 +441,26 @@ st.markdown("""
 # ─────────────────────────────────────────────
 #  Session State Init
 # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+#  Session State Init
+# ─────────────────────────────────────────────
 for key, default in {
     "page": "landing",
     "logged_in": False,
     "username": "",
-    "users": {},
+    "users": load_users(),
     "chat_history": [],
-    "health_history": [],
+    "health_history": load_history(),
     "voice_text": "",
     "api_key": "",
+    "show_install": True,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
+
+# Always sync users from file on load
+if not st.session_state.users:
+    st.session_state.users = load_users()
 
 
 # ─────────────────────────────────────────────
@@ -431,11 +470,30 @@ def hash_pw(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
 
 def save_history(entry_type, summary):
-    st.session_state.health_history.append({
+    entry = {
         "type": entry_type, "summary": summary,
         "time": datetime.now().strftime("%d %b %Y, %I:%M %p"),
         "user": st.session_state.username
-    })
+    }
+    st.session_state.health_history.append(entry)
+    save_history_file(st.session_state.health_history)
+
+def register_user(username, name, password, email=""):
+    """Register user and save to file. Returns error string or None."""
+    users = st.session_state.users
+    if username.lower() in [u.lower() for u in users.keys()]:
+        return "Username already taken. Please choose another."
+    if email and any(u.get("email","").lower() == email.lower() for u in users.values()):
+        return "An account with this email already exists."
+    users[username] = {
+        "name": name,
+        "password": hash_pw(password),
+        "email": email,
+        "joined": datetime.now().strftime("%d %b %Y"),
+    }
+    st.session_state.users = users
+    save_users(users)
+    return None
 
 def call_groq(api_key, prompt, temperature=0.5, max_tokens=1500):
     resp = requests.post(
@@ -570,83 +628,147 @@ if st.session_state.page == "landing":
 # ════════════════════════════════════════════
 elif st.session_state.page == "auth":
 
+    # ── Install sidebar (compact, not fullscreen) ──
+    with st.sidebar:
+        st.markdown("""
+        <div style="text-align:center;padding:0.75rem 0 0.5rem">
+          <div style="font-size:1.6rem">🏥</div>
+          <div style="font-family:'Space Grotesk',sans-serif;font-size:1rem;font-weight:700;
+            background:linear-gradient(135deg,#0ea5e9,#7c3aed);
+            -webkit-background-clip:text;-webkit-text-fill-color:transparent">HealthGPT</div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.divider()
+        st.markdown("""
+        <div style="font-size:0.65rem;font-weight:700;letter-spacing:0.12em;
+          text-transform:uppercase;color:#0ea5e9;margin-bottom:0.6rem">
+          📱 Install as App
+        </div>
+        <div style="background:#0d1117;border:1px solid #30363d;border-radius:10px;
+          padding:0.85rem;font-size:0.78rem;color:#8b949e;line-height:2">
+          <strong style="color:#e2e8f0">Android:</strong><br>
+          ⋮ menu → Add to Home Screen<br><br>
+          <strong style="color:#e2e8f0">iPhone:</strong><br>
+          Share □↑ → Add to Home Screen
+        </div>
+        """, unsafe_allow_html=True)
+        st.divider()
+        st.markdown("""
+        <div style="font-size:0.75rem;color:#8b949e;line-height:2;text-align:center">
+          🚨 <strong style="color:#f87171">108</strong> Ambulance<br>
+          🆘 <strong style="color:#f87171">112</strong> National
+        </div>
+        """, unsafe_allow_html=True)
+
+    # ── Main Auth Content ──
     st.markdown("<br>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         st.markdown("""
         <div style="text-align:center;margin-bottom:1.5rem">
-          <div style="font-size:2rem">🏥</div>
-          <div style="font-family:'Space Grotesk',sans-serif;font-size:1.6rem;font-weight:700;
-            background:linear-gradient(135deg,#e2e8f0,#0ea5e9);
+          <div style="font-size:2.5rem">🏥</div>
+          <div style="font-family:'Space Grotesk',sans-serif;font-size:1.8rem;font-weight:700;
+            background:linear-gradient(135deg,#e2e8f0,#0ea5e9,#7c3aed);
             -webkit-background-clip:text;-webkit-text-fill-color:transparent">HealthGPT</div>
+          <div style="font-size:0.82rem;color:#8b949e;margin-top:4px">AI Health Assistant for India 🇮🇳</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # ── Google Button ──
+        st.markdown("""
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;
+          padding:1rem;margin-bottom:1rem;text-align:center">
+          <div style="font-size:0.65rem;font-weight:700;letter-spacing:0.1em;
+            text-transform:uppercase;color:#8b949e;margin-bottom:0.75rem">Quick Sign In</div>
+          <div style="display:flex;align-items:center;justify-content:center;gap:10px;
+            background:white;color:#1f1f1f;border-radius:8px;padding:10px 16px;
+            font-size:0.88rem;font-weight:600;cursor:pointer;font-family:Inter,sans-serif">
+            <svg width="18" height="18" viewBox="0 0 48 48">
+              <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+              <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+              <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+              <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.35-8.16 2.35-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+            </svg>
+            Continue with Google
+          </div>
+          <div style="font-size:0.7rem;color:#8b949e;margin-top:0.5rem">
+            ⚠️ Google OAuth coming soon — use login below for now
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin:0.5rem 0 1rem">
+          <div style="flex:1;height:1px;background:#30363d"></div>
+          <div style="font-size:0.75rem;color:#8b949e">or continue with username</div>
+          <div style="flex:1;height:1px;background:#30363d"></div>
         </div>
         """, unsafe_allow_html=True)
 
         auth_tab1, auth_tab2 = st.tabs(["🔑  Login", "✨  Sign Up"])
 
         with auth_tab1:
-            st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='height:0.4rem'></div>", unsafe_allow_html=True)
             st.markdown('<div class="section-label">Username</div>', unsafe_allow_html=True)
             login_user = st.text_input("LUser", placeholder="Enter your username", label_visibility="collapsed", key="lu")
             st.markdown('<div class="section-label">Password</div>', unsafe_allow_html=True)
             login_pass = st.text_input("LPass", type="password", placeholder="Enter your password", label_visibility="collapsed", key="lp")
             st.markdown('<div class="section-label">🔑 Groq API Key</div>', unsafe_allow_html=True)
-            login_api = st.text_input("LApi", type="password", placeholder="gsk_... (get free at console.groq.com)", label_visibility="collapsed", key="la")
-            st.markdown("<div style='font-size:0.72rem;color:#8b949e'>Free API key at <a href='https://console.groq.com' target='_blank' style='color:#0ea5e9'>console.groq.com</a> — no credit card needed</div>", unsafe_allow_html=True)
+            login_api = st.text_input("LApi", type="password", placeholder="gsk_...", label_visibility="collapsed", key="la")
+            st.markdown("<div style='font-size:0.72rem;color:#8b949e'>Free at <a href='https://console.groq.com' target='_blank' style='color:#0ea5e9'>console.groq.com</a></div>", unsafe_allow_html=True)
 
             if st.button("🔑  Login", use_container_width=True, type="primary", key="login_btn"):
                 if not login_api:
                     st.error("⚠️  Please enter your Groq API key.")
+                elif not login_user or not login_pass:
+                    st.error("⚠️  Please enter username and password.")
                 else:
                     users = st.session_state.users
-                    if login_user in users and users[login_user]["password"] == hash_pw(login_pass):
+                    matched = next((u for u in users if u.lower() == login_user.lower()), None)
+                    if matched and users[matched]["password"] == hash_pw(login_pass):
                         st.session_state.logged_in = True
-                        st.session_state.username = login_user
+                        st.session_state.username = matched
                         st.session_state.api_key = login_api
                         st.session_state.page = "app"
                         st.rerun()
-                    elif login_user == "demo" and login_pass == "demo123":
+                    elif login_user.lower() == "demo" and login_pass == "demo123":
                         st.session_state.logged_in = True
-                        st.session_state.username = "Demo User"
+                        st.session_state.username = "demo"
                         st.session_state.api_key = login_api
                         st.session_state.page = "app"
                         st.rerun()
                     else:
                         st.error("❌  Invalid username or password.")
 
-            st.markdown("<div style='font-size:0.78rem;color:#8b949e;text-align:center;margin-top:0.5rem'>Demo: username <b style='color:#0ea5e9'>demo</b> / password <b style='color:#0ea5e9'>demo123</b></div>", unsafe_allow_html=True)
+            st.markdown("<div style='font-size:0.75rem;color:#8b949e;text-align:center;margin-top:0.5rem'>Demo: <b style='color:#0ea5e9'>demo</b> / <b style='color:#0ea5e9'>demo123</b></div>", unsafe_allow_html=True)
 
         with auth_tab2:
-            st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='height:0.4rem'></div>", unsafe_allow_html=True)
             st.markdown('<div class="section-label">Full Name</div>', unsafe_allow_html=True)
-            reg_name = st.text_input("RName", placeholder="e.g. Akash Kumar", label_visibility="collapsed", key="rn")
+            reg_name = st.text_input("RName", placeholder="e.g. Akash Kumar Injeti", label_visibility="collapsed", key="rn")
+            st.markdown('<div class="section-label">Email</div>', unsafe_allow_html=True)
+            reg_email = st.text_input("REmail", placeholder="e.g. akash@gmail.com (optional)", label_visibility="collapsed", key="re")
             st.markdown('<div class="section-label">Username</div>', unsafe_allow_html=True)
-            reg_user = st.text_input("RUser", placeholder="Choose a username", label_visibility="collapsed", key="ru")
+            reg_user = st.text_input("RUser", placeholder="Choose a unique username", label_visibility="collapsed", key="ru")
             st.markdown('<div class="section-label">Password</div>', unsafe_allow_html=True)
-            reg_pass = st.text_input("RPass", type="password", placeholder="Choose a password", label_visibility="collapsed", key="rp")
+            reg_pass = st.text_input("RPass", type="password", placeholder="Min 4 characters", label_visibility="collapsed", key="rp")
             st.markdown('<div class="section-label">🔑 Groq API Key</div>', unsafe_allow_html=True)
-            reg_api = st.text_input("RApi", type="password", placeholder="gsk_... (get free at console.groq.com)", label_visibility="collapsed", key="ra")
+            reg_api = st.text_input("RApi", type="password", placeholder="gsk_...", label_visibility="collapsed", key="ra")
             st.markdown("<div style='font-size:0.72rem;color:#8b949e'>Free at <a href='https://console.groq.com' target='_blank' style='color:#0ea5e9'>console.groq.com</a></div>", unsafe_allow_html=True)
 
             if st.button("✨  Create Account", use_container_width=True, type="primary", key="reg_btn"):
-                if not reg_name or not reg_user or not reg_pass:
-                    st.error("⚠️  Please fill in all fields.")
-                elif not reg_api:
-                    st.error("⚠️  Please enter your Groq API key.")
-                elif reg_user in st.session_state.users:
-                    st.error("❌  Username already taken.")
+                if not all([reg_name, reg_user, reg_pass, reg_api]):
+                    st.error("⚠️  Please fill all fields (email optional).")
                 elif len(reg_pass) < 4:
                     st.error("⚠️  Password must be at least 4 characters.")
                 else:
-                    st.session_state.users[reg_user] = {
-                        "name": reg_name, "password": hash_pw(reg_pass)
-                    }
-                    st.session_state.logged_in = True
-                    st.session_state.username = reg_user
-                    st.session_state.api_key = reg_api
-                    st.session_state.page = "app"
-                    st.success(f"🎉 Welcome {reg_name}!")
-                    st.rerun()
+                    err = register_user(reg_user, reg_name, reg_pass, reg_email)
+                    if err:
+                        st.error(f"❌  {err}")
+                    else:
+                        st.session_state.logged_in = True
+                        st.session_state.username = reg_user
+                        st.session_state.api_key = reg_api
+                        st.session_state.page = "app"
+                        st.success(f"🎉 Welcome {reg_name}!")
+                        st.rerun()
 
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("← Back to Home", use_container_width=True, key="back_btn"):
