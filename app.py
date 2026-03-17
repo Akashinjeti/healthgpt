@@ -750,7 +750,26 @@ if st.session_state.page == "landing":
 
     st.markdown("""
     <div class="landing-hero">
-      <div style="font-size:3.5rem;margin-bottom:0.5rem">🏥</div>
+      <div style="margin-bottom:1.5rem">
+        <svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="60" cy="60" r="58" fill="#0d1117" stroke="#0ea5e9" stroke-width="1.5" opacity="0.9"/>
+          <circle cx="60" cy="60" r="52" fill="none" stroke="#7c3aed" stroke-width="0.8" opacity="0.4"/>
+          <circle cx="60" cy="60" r="46" fill="none" stroke="#0ea5e9" stroke-width="0.6" opacity="0.2"/>
+          <circle cx="60" cy="60" r="58" fill="none" stroke="#0ea5e9" stroke-width="1" opacity="0.15"/>
+          <rect x="47" y="33" width="26" height="54" rx="6" fill="#0ea5e9" opacity="0.12"/>
+          <rect x="33" y="47" width="54" height="26" rx="6" fill="#0ea5e9" opacity="0.12"/>
+          <line x1="60" y1="36" x2="60" y2="84" stroke="#0ea5e9" stroke-width="3" stroke-linecap="round"/>
+          <line x1="36" y1="60" x2="84" y2="60" stroke="#0ea5e9" stroke-width="3" stroke-linecap="round"/>
+          <polyline points="25,60 34,60 39,46 44,74 49,54 55,60 65,60 71,48 76,72 81,57 87,60 95,60"
+            fill="none" stroke="#0ea5e9" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
+          <circle cx="60" cy="10" r="3.5" fill="#0ea5e9"/>
+          <circle cx="105" cy="35" r="2.5" fill="#7c3aed"/>
+          <circle cx="105" cy="85" r="2.5" fill="#0ea5e9"/>
+          <circle cx="60" cy="110" r="3.5" fill="#ef4444"/>
+          <circle cx="15" cy="85" r="2.5" fill="#7c3aed"/>
+          <circle cx="15" cy="35" r="2.5" fill="#0ea5e9"/>
+        </svg>
+      </div>
       <div class="landing-title">HealthGPT</div>
       <div class="landing-sub">
         Your personal AI Health Assistant — built for India 🇮🇳<br>
@@ -879,7 +898,20 @@ elif st.session_state.page == "auth":
     with c2:
         st.markdown("""
         <div style="text-align:center;margin-bottom:1.5rem">
-          <div style="font-size:2.5rem">🏥</div>
+          <svg width="72" height="72" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" style="margin-bottom:8px">
+            <circle cx="60" cy="60" r="58" fill="#0d1117" stroke="#0ea5e9" stroke-width="1.5"/>
+            <circle cx="60" cy="60" r="50" fill="none" stroke="#7c3aed" stroke-width="0.7" opacity="0.4"/>
+            <rect x="47" y="33" width="26" height="54" rx="6" fill="#0ea5e9" opacity="0.12"/>
+            <rect x="33" y="47" width="54" height="26" rx="6" fill="#0ea5e9" opacity="0.12"/>
+            <line x1="60" y1="36" x2="60" y2="84" stroke="#0ea5e9" stroke-width="3" stroke-linecap="round"/>
+            <line x1="36" y1="60" x2="84" y2="60" stroke="#0ea5e9" stroke-width="3" stroke-linecap="round"/>
+            <polyline points="25,60 34,60 39,46 44,74 49,54 55,60 65,60 71,48 76,72 81,57 87,60 95,60"
+              fill="none" stroke="#0ea5e9" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
+            <circle cx="60" cy="10" r="3.5" fill="#0ea5e9"/>
+            <circle cx="105" cy="35" r="2.5" fill="#7c3aed"/>
+            <circle cx="60" cy="110" r="3.5" fill="#ef4444"/>
+            <circle cx="15" cy="35" r="2.5" fill="#0ea5e9"/>
+          </svg>
           <div style="font-family:'Space Grotesk',sans-serif;font-size:1.8rem;font-weight:700;
             background:linear-gradient(135deg,#e2e8f0,#0ea5e9,#7c3aed);
             -webkit-background-clip:text;-webkit-text-fill-color:transparent">HealthGPT</div>
@@ -1007,7 +1039,20 @@ elif st.session_state.page == "app":
 
         st.markdown(f"""
         <div style="text-align:center;padding:1rem 0 1.5rem">
-          <div style="font-size:2.5rem">🏥</div>
+          <svg width="56" height="56" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" style="margin-bottom:6px">
+            <circle cx="60" cy="60" r="58" fill="#0d1117" stroke="#0ea5e9" stroke-width="1.5"/>
+            <circle cx="60" cy="60" r="50" fill="none" stroke="#7c3aed" stroke-width="0.7" opacity="0.4"/>
+            <rect x="47" y="33" width="26" height="54" rx="6" fill="#0ea5e9" opacity="0.12"/>
+            <rect x="33" y="47" width="54" height="26" rx="6" fill="#0ea5e9" opacity="0.12"/>
+            <line x1="60" y1="36" x2="60" y2="84" stroke="#0ea5e9" stroke-width="3" stroke-linecap="round"/>
+            <line x1="36" y1="60" x2="84" y2="60" stroke="#0ea5e9" stroke-width="3" stroke-linecap="round"/>
+            <polyline points="25,60 34,60 39,46 44,74 49,54 55,60 65,60 71,48 76,72 81,57 87,60 95,60"
+              fill="none" stroke="#0ea5e9" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
+            <circle cx="60" cy="10" r="3" fill="#0ea5e9"/>
+            <circle cx="105" cy="35" r="2.5" fill="#7c3aed"/>
+            <circle cx="60" cy="110" r="3" fill="#ef4444"/>
+            <circle cx="15" cy="35" r="2.5" fill="#0ea5e9"/>
+          </svg>
           <div style="font-family:'Space Grotesk',sans-serif;font-size:1.3rem;font-weight:700;
             background:linear-gradient(135deg,#0ea5e9,#7c3aed);
             -webkit-background-clip:text;-webkit-text-fill-color:transparent">HealthGPT</div>
