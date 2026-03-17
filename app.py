@@ -1,8 +1,8 @@
 """
 ╔══════════════════════════════════════════════════════════════╗
-║        HealthGPT ULTRA — Full Product                        ║
-║        Session 3 | by Akash Kumar Injeti                     ║
-║        Login + Voice + News + 4 Languages + Landing Page     ║
+║        HealthGPT ULTRA — Session 4                           ║
+║        Supabase DB + Google OAuth + Prescription Scanner     ║
+║        by Akash Kumar Injeti                                 ║
 ╚══════════════════════════════════════════════════════════════╝
 """
 
@@ -11,38 +11,190 @@ import requests
 import json
 import hashlib
 import os
+import base64
+import urllib.parse
 from datetime import datetime
 import io
 
 # ─────────────────────────────────────────────
-#  Persistent User Storage (JSON file)
+#  Config — Keys (from Streamlit secrets or env)
 # ─────────────────────────────────────────────
-USERS_FILE = "users_db.json"
+def get_secret(key, default=""):
+    try:
+        return st.secrets[key]
+    except:
+        return os.environ.get(key, default)
+
+SUPABASE_URL    = get_secret("SUPABASE_URL")
+SUPABASE_KEY    = get_secret("SUPABASE_KEY")
+GOOGLE_CLIENT_ID = get_secret("GOOGLE_CLIENT_ID")
+GOOGLE_SECRET   = get_secret("GOOGLE_SECRET")
+REDIRECT_URI    = get_secret("REDIRECT_URI", "https://healthgptultra.streamlit.app/")
+
+# ─────────────────────────────────────────────
+#  Supabase DB Helpers
+# ─────────────────────────────────────────────
+def sb_headers():
+    return {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
+
+def sb_get_user(username):
+    """Get user by username from Supabase."""
+    try:
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/users?username=eq.{username}&select=*",
+            headers=sb_headers(), timeout=10
+        )
+        data = r.json()
+        return data[0] if data else None
+    except: return None
+
+def sb_get_user_by_email(email):
+    """Get user by email."""
+    try:
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/users?email=eq.{urllib.parse.quote(email)}&select=*",
+            headers=sb_headers(), timeout=10
+        )
+        data = r.json()
+        return data[0] if data else None
+    except: return None
+
+def sb_create_user(username, name, password_hash, email=""):
+    """Create new user in Supabase."""
+    try:
+        payload = {"username": username, "name": name,
+                   "password": password_hash, "email": email}
+        r = requests.post(
+            f"{SUPABASE_URL}/rest/v1/users",
+            headers=sb_headers(), json=payload, timeout=10
+        )
+        return r.status_code in [200, 201]
+    except: return False
+
+def sb_username_exists(username):
+    """Check if username already taken (case-insensitive)."""
+    try:
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/users?username=ilike.{username}&select=username",
+            headers=sb_headers(), timeout=10
+        )
+        return len(r.json()) > 0
+    except: return False
+
+def sb_email_exists(email):
+    """Check if email already registered."""
+    try:
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/users?email=eq.{urllib.parse.quote(email)}&select=email",
+            headers=sb_headers(), timeout=10
+        )
+        return len(r.json()) > 0
+    except: return False
+
+def sb_save_history(username, entry_type, summary):
+    """Save health history entry to Supabase."""
+    try:
+        payload = {"username": username, "type": entry_type, "summary": summary}
+        requests.post(
+            f"{SUPABASE_URL}/rest/v1/health_history",
+            headers=sb_headers(), json=payload, timeout=10
+        )
+    except: pass
+
+def sb_get_history(username):
+    """Get health history for user from Supabase."""
+    try:
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/health_history?username=eq.{username}&order=created_at.desc&select=*",
+            headers=sb_headers(), timeout=10
+        )
+        return r.json() if r.status_code == 200 else []
+    except: return []
+
+def sb_delete_history(username):
+    """Delete all history for user."""
+    try:
+        requests.delete(
+            f"{SUPABASE_URL}/rest/v1/health_history?username=eq.{username}",
+            headers=sb_headers(), timeout=10
+        )
+    except: pass
+
+# ─────────────────────────────────────────────
+#  Google OAuth Helpers
+# ─────────────────────────────────────────────
+def google_auth_url():
+    """Generate Google OAuth URL."""
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": REDIRECT_URI,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "access_type": "offline",
+        "prompt": "select_account"
+    }
+    return "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params)
+
+def google_exchange_code(code):
+    """Exchange auth code for tokens."""
+    try:
+        r = requests.post("https://oauth2.googleapis.com/token", data={
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_SECRET,
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": REDIRECT_URI,
+        }, timeout=15)
+        return r.json()
+    except: return None
+
+def google_get_userinfo(access_token):
+    """Get user info from Google."""
+    try:
+        r = requests.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"}, timeout=10
+        )
+        return r.json()
+    except: return None
+
+# ─────────────────────────────────────────────
+#  Fallback local storage (if Supabase not configured)
+# ─────────────────────────────────────────────
+USERS_FILE   = "users_db.json"
 HISTORY_FILE = "history_db.json"
 
-def load_users():
+def use_supabase():
+    return bool(SUPABASE_URL and SUPABASE_KEY and "supabase.co" in SUPABASE_URL)
+
+def load_users_local():
     if os.path.exists(USERS_FILE):
         try:
-            with open(USERS_FILE, "r") as f:
-                return json.load(f)
+            with open(USERS_FILE, "r") as f: return json.load(f)
         except: return {}
     return {}
 
-def save_users(users):
-    with open(USERS_FILE, "w") as f:
-        json.dump(users, f, indent=2)
+def save_users_local(users):
+    try:
+        with open(USERS_FILE, "w") as f: json.dump(users, f, indent=2)
+    except: pass
 
-def load_history():
+def load_history_local():
     if os.path.exists(HISTORY_FILE):
         try:
-            with open(HISTORY_FILE, "r") as f:
-                return json.load(f)
+            with open(HISTORY_FILE, "r") as f: return json.load(f)
         except: return []
     return []
 
-def save_history_file(history):
-    with open(HISTORY_FILE, "w") as f:
-        json.dump(history, f, indent=2)
+def save_history_local(history):
+    try:
+        with open(HISTORY_FILE, "w") as f: json.dump(history, f, indent=2)
+    except: pass
 
 # ─────────────────────────────────────────────
 #  PDF Generator (pure Python, no library)
@@ -441,26 +593,59 @@ st.markdown("""
 # ─────────────────────────────────────────────
 #  Session State Init
 # ─────────────────────────────────────────────
-# ─────────────────────────────────────────────
-#  Session State Init
-# ─────────────────────────────────────────────
 for key, default in {
     "page": "landing",
     "logged_in": False,
     "username": "",
-    "users": load_users(),
+    "display_name": "",
+    "email": "",
+    "login_method": "",
+    "users": {},
     "chat_history": [],
-    "health_history": load_history(),
-    "voice_text": "",
+    "health_history": [],
     "api_key": "",
-    "show_install": True,
+    "google_code_used": False,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
 
-# Always sync users from file on load
-if not st.session_state.users:
-    st.session_state.users = load_users()
+# Load local users if Supabase not configured
+if not use_supabase() and not st.session_state.users:
+    st.session_state.users = load_users_local()
+
+# ── Handle Google OAuth callback ──
+query_params = st.query_params
+if "code" in query_params and not st.session_state.logged_in and not st.session_state.google_code_used:
+    code = query_params["code"]
+    st.session_state.google_code_used = True
+    with st.spinner("🔵 Signing in with Google..."):
+        tokens = google_exchange_code(code)
+        if tokens and "access_token" in tokens:
+            userinfo = google_get_userinfo(tokens["access_token"])
+            if userinfo and "email" in userinfo:
+                email    = userinfo.get("email", "")
+                name     = userinfo.get("name", email.split("@")[0])
+                username = email.split("@")[0].replace(".", "_")
+                if use_supabase():
+                    if not sb_email_exists(email):
+                        sb_create_user(username, name, "", email)
+                else:
+                    if username not in st.session_state.users:
+                        st.session_state.users[username] = {
+                            "name": name, "password": "", "email": email,
+                            "joined": datetime.now().strftime("%d %b %Y")
+                        }
+                        save_users_local(st.session_state.users)
+                st.session_state.logged_in    = True
+                st.session_state.username     = username
+                st.session_state.display_name = name
+                st.session_state.email        = email
+                st.session_state.login_method = "google"
+                st.session_state.page         = "app"
+                st.query_params.clear()
+                st.rerun()
+        else:
+            st.error("❌ Google login failed. Please try again.")
 
 
 # ─────────────────────────────────────────────
@@ -470,30 +655,58 @@ def hash_pw(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
 
 def save_history(entry_type, summary):
-    entry = {
-        "type": entry_type, "summary": summary,
-        "time": datetime.now().strftime("%d %b %Y, %I:%M %p"),
-        "user": st.session_state.username
-    }
-    st.session_state.health_history.append(entry)
-    save_history_file(st.session_state.health_history)
+    username = st.session_state.username
+    if use_supabase():
+        sb_save_history(username, entry_type, summary)
+    else:
+        entry = {
+            "type": entry_type, "summary": summary,
+            "time": datetime.now().strftime("%d %b %Y, %I:%M %p"),
+            "user": username
+        }
+        st.session_state.health_history.append(entry)
+        save_history_local(st.session_state.health_history)
+
+def get_history():
+    username = st.session_state.username
+    if use_supabase():
+        return sb_get_history(username)
+    return [h for h in st.session_state.health_history if h.get("user") == username]
 
 def register_user(username, name, password, email=""):
-    """Register user and save to file. Returns error string or None."""
-    users = st.session_state.users
-    if username.lower() in [u.lower() for u in users.keys()]:
-        return "Username already taken. Please choose another."
-    if email and any(u.get("email","").lower() == email.lower() for u in users.values()):
-        return "An account with this email already exists."
-    users[username] = {
-        "name": name,
-        "password": hash_pw(password),
-        "email": email,
-        "joined": datetime.now().strftime("%d %b %Y"),
-    }
-    st.session_state.users = users
-    save_users(users)
-    return None
+    if use_supabase():
+        if sb_username_exists(username):
+            return "Username already taken. Please choose another."
+        if email and sb_email_exists(email):
+            return "An account with this email already exists."
+        ok = sb_create_user(username, name, hash_pw(password), email)
+        return None if ok else "Could not create account. Please try again."
+    else:
+        users = st.session_state.users
+        if username.lower() in [u.lower() for u in users.keys()]:
+            return "Username already taken. Please choose another."
+        if email and any(u.get("email","").lower()==email.lower() for u in users.values()):
+            return "An account with this email already exists."
+        users[username] = {
+            "name": name, "password": hash_pw(password),
+            "email": email, "joined": datetime.now().strftime("%d %b %Y")
+        }
+        st.session_state.users = users
+        save_users_local(users)
+        return None
+
+def verify_login(username, password):
+    if use_supabase():
+        user = sb_get_user(username)
+        if user and user.get("password") == hash_pw(password):
+            return user
+        return None
+    else:
+        users = st.session_state.users
+        matched = next((u for u in users if u.lower() == username.lower()), None)
+        if matched and users[matched].get("password") == hash_pw(password):
+            return {"name": users[matched].get("name", matched), "username": matched}
+        return None
 
 def call_groq(api_key, prompt, temperature=0.5, max_tokens=1500):
     resp = requests.post(
@@ -674,15 +887,18 @@ elif st.session_state.page == "auth":
         </div>
         """, unsafe_allow_html=True)
 
-        # ── Google Button ──
-        st.markdown("""
+        # ── Real Google OAuth Button ──
+        google_url = google_auth_url() if GOOGLE_CLIENT_ID else "#"
+        st.markdown(f"""
         <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;
           padding:1rem;margin-bottom:1rem;text-align:center">
           <div style="font-size:0.65rem;font-weight:700;letter-spacing:0.1em;
             text-transform:uppercase;color:#8b949e;margin-bottom:0.75rem">Quick Sign In</div>
-          <div style="display:flex;align-items:center;justify-content:center;gap:10px;
+          <a href="{google_url}" style="
+            display:flex;align-items:center;justify-content:center;gap:10px;
             background:white;color:#1f1f1f;border-radius:8px;padding:10px 16px;
-            font-size:0.88rem;font-weight:600;cursor:pointer;font-family:Inter,sans-serif">
+            font-size:0.88rem;font-weight:600;text-decoration:none;
+            font-family:Inter,sans-serif;">
             <svg width="18" height="18" viewBox="0 0 48 48">
               <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
               <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
@@ -690,10 +906,8 @@ elif st.session_state.page == "auth":
               <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.35-8.16 2.35-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
             </svg>
             Continue with Google
-          </div>
-          <div style="font-size:0.7rem;color:#8b949e;margin-top:0.5rem">
-            ⚠️ Google OAuth coming soon — use login below for now
-          </div>
+          </a>
+          {"<div style='font-size:0.7rem;color:#fbbf24;margin-top:0.5rem'>⚠️ Add GOOGLE_CLIENT_ID to Streamlit secrets to enable</div>" if not GOOGLE_CLIENT_ID else "<div style='font-size:0.7rem;color:#4ade80;margin-top:0.5rem'>✅ Click above to sign in with your Google account</div>"}
         </div>
         <div style="display:flex;align-items:center;gap:10px;margin:0.5rem 0 1rem">
           <div style="flex:1;height:1px;background:#30363d"></div>
@@ -720,19 +934,23 @@ elif st.session_state.page == "auth":
                 elif not login_user or not login_pass:
                     st.error("⚠️  Please enter username and password.")
                 else:
-                    users = st.session_state.users
-                    matched = next((u for u in users if u.lower() == login_user.lower()), None)
-                    if matched and users[matched]["password"] == hash_pw(login_pass):
-                        st.session_state.logged_in = True
-                        st.session_state.username = matched
-                        st.session_state.api_key = login_api
-                        st.session_state.page = "app"
+                    user = verify_login(login_user, login_pass)
+                    if user:
+                        st.session_state.logged_in    = True
+                        st.session_state.username     = user.get("username", login_user)
+                        st.session_state.display_name = user.get("name", login_user)
+                        st.session_state.email        = user.get("email", "")
+                        st.session_state.api_key      = login_api
+                        st.session_state.login_method = "manual"
+                        st.session_state.page         = "app"
                         st.rerun()
                     elif login_user.lower() == "demo" and login_pass == "demo123":
-                        st.session_state.logged_in = True
-                        st.session_state.username = "demo"
-                        st.session_state.api_key = login_api
-                        st.session_state.page = "app"
+                        st.session_state.logged_in    = True
+                        st.session_state.username     = "demo"
+                        st.session_state.display_name = "Demo User"
+                        st.session_state.api_key      = login_api
+                        st.session_state.login_method = "manual"
+                        st.session_state.page         = "app"
                         st.rerun()
                     else:
                         st.error("❌  Invalid username or password.")
@@ -783,9 +1001,9 @@ elif st.session_state.page == "app":
 
     # ── Sidebar ──
     with st.sidebar:
-        user_display = st.session_state.users.get(
-            st.session_state.username, {}
-        ).get("name", st.session_state.username)
+        user_display = st.session_state.display_name or \
+            st.session_state.users.get(st.session_state.username, {}).get("name", st.session_state.username)
+        login_badge = "🔵 Google" if st.session_state.login_method == "google" else "🔑 Account"
 
         st.markdown(f"""
         <div style="text-align:center;padding:1rem 0 1.5rem">
@@ -797,9 +1015,11 @@ elif st.session_state.page == "app":
         </div>
         <div style="background:#0d1117;border:1px solid #30363d;border-radius:10px;
           padding:0.75rem 1rem;margin-bottom:1rem;text-align:center">
-          <div style="font-size:1.2rem">👤</div>
+          <div style="font-size:1.2rem">{"🔵" if st.session_state.login_method == "google" else "👤"}</div>
           <div style="font-size:0.88rem;font-weight:600;color:#e2e8f0">{user_display}</div>
           <div style="font-size:0.72rem;color:#0ea5e9">@{st.session_state.username}</div>
+          <div style="font-size:0.65rem;color:#8b949e;margin-top:3px">{login_badge}</div>
+          {"<div style='font-size:0.65rem;color:#8b949e'>" + st.session_state.email + "</div>" if st.session_state.email else ""}
         </div>
         """, unsafe_allow_html=True)
 
@@ -858,10 +1078,10 @@ elif st.session_state.page == "app":
     """, unsafe_allow_html=True)
 
     # ── 8 Tabs ──
-    tab1,tab2,tab3,tab4,tab5,tab6,tab7,tab8 = st.tabs([
+    tab1,tab2,tab3,tab4,tab5,tab6,tab7,tab8,tab9 = st.tabs([
         "🩺 Symptoms","💊 Medicine","🥗 Diet",
         "🚨 Emergency","📄 PDF","💬 Chat",
-        "📰 News","📊 Dashboard"
+        "📸 Prescription","📰 News","📊 Dashboard"
     ])
 
     # ── TAB 1 Symptoms ──
@@ -1163,8 +1383,118 @@ Keep responses concise and easy to read."""}
                         st.rerun()
                     except Exception as e: st.error(f"❌ {e}")
 
-    # ── TAB 7 Health News ──
+    # ── TAB 7 Prescription Scanner ──
     with tab7:
+        st.markdown("#### 📸 Prescription Scanner")
+        st.markdown("<span style='color:#8b949e;font-size:0.88rem'>Upload a photo of your prescription — AI reads and explains it in simple language.</span>", unsafe_allow_html=True)
+        st.markdown("")
+
+        st.markdown("""
+        <div style="background:#1a1400;border:1px solid #78350f;border-radius:12px;
+          padding:0.9rem 1.1rem;margin-bottom:1rem;font-size:0.82rem;color:#fde68a">
+          ⚠️ <strong>For informational use only.</strong> Always follow your doctor's instructions.
+          This tool helps you understand your prescription — not replace it.
+        </div>
+        """, unsafe_allow_html=True)
+
+        img_file = st.file_uploader(
+            "Upload Prescription",
+            type=["jpg", "jpeg", "png", "webp"],
+            label_visibility="collapsed",
+            help="Take a clear photo of your prescription and upload it"
+        )
+
+        presc_lang = st.selectbox("Explain in:", ["English", "Telugu (తెలుగు)", "Hindi (हिंदी)", "Tamil (தமிழ்)"], key="presc_lang")
+
+        if img_file:
+            st.image(img_file, caption="Your prescription", use_column_width=True)
+
+            if st.button("📸  Read & Explain Prescription", use_container_width=True, type="primary", key="presc_btn"):
+                if not api_key:
+                    st.error("⚠️  Enter API key in sidebar.")
+                else:
+                    lang_map = {
+                        "English": "Respond in simple English",
+                        "Telugu (తెలుగు)": "Respond in Telugu language",
+                        "Hindi (हिंदी)": "Respond in Hindi language",
+                        "Tamil (தமிழ்)": "Respond in Tamil language",
+                    }
+                    p_lang = lang_map.get(presc_lang, "Respond in simple English")
+
+                    # Convert image to base64
+                    img_bytes = img_file.read()
+                    img_b64   = base64.b64encode(img_bytes).decode()
+                    mime_type = img_file.type or "image/jpeg"
+
+                    with st.spinner("📸 Reading your prescription..."):
+                        try:
+                            # Use vision-capable model
+                            resp = requests.post(
+                                "https://api.groq.com/openai/v1/chat/completions",
+                                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                                json={
+                                    "model": "llama-3.2-11b-vision-preview",
+                                    "messages": [{
+                                        "role": "user",
+                                        "content": [
+                                            {
+                                                "type": "image_url",
+                                                "image_url": {"url": f"data:{mime_type};base64,{img_b64}"}
+                                            },
+                                            {
+                                                "type": "text",
+                                                "text": f"""{p_lang}. You are a helpful medical assistant.
+
+Look at this prescription image and provide:
+1. 💊 Medicines Prescribed (list each medicine name)
+2. 📏 Dosage & Timing (how much and when to take each)
+3. 🎯 What each medicine is for (simple explanation)
+4. ⚠️ Important Instructions (with food/without food, side effects to watch)
+5. 📅 Course Duration (how many days)
+6. 🔤 Any other notes from the prescription
+
+If the image is not clear or not a prescription, say so politely.
+Always remind: Follow your doctor's exact instructions."""
+                                            }
+                                        ]
+                                    }],
+                                    "max_tokens": 1500
+                                },
+                                timeout=40
+                            )
+
+                            if resp.status_code == 200:
+                                result = resp.json()["choices"][0]["message"]["content"].strip()
+                                st.markdown(f'<div class="pdf-message">{result}</div>', unsafe_allow_html=True)
+                                save_history("📸 Prescription Scan", f"Prescription scanned in {presc_lang}")
+                                col_dl1, col_dl2 = st.columns(2)
+                                with col_dl1:
+                                    st.download_button("⬇️ Download TXT", data=result.encode(),
+                                                       file_name="prescription_explained.txt", mime="text/plain", key="pr_txt")
+                                with col_dl2:
+                                    pdf_b = generate_pdf_bytes("Prescription Explanation", result)
+                                    st.download_button("📄 Download PDF", data=pdf_b,
+                                                       file_name="prescription_explained.pdf", mime="application/pdf", key="pr_pdf")
+                            else:
+                                st.error(f"❌ Could not read prescription. Error: {resp.status_code}")
+                                st.info("💡 Tip: Make sure the image is clear, well-lit, and the text is readable.")
+                        except Exception as e:
+                            st.error(f"❌ {e}")
+        else:
+            st.markdown("""
+            <div style="background:#161b22;border:2px dashed #30363d;border-radius:12px;
+              padding:2.5rem;text-align:center;color:#8b949e;margin-top:1rem">
+              <div style="font-size:2.5rem;margin-bottom:0.75rem">📸</div>
+              <div style="font-weight:600;color:#e2e8f0;margin-bottom:0.4rem">Upload a prescription photo</div>
+              <div style="font-size:0.82rem">Take a clear photo → upload → AI explains every medicine</div>
+              <div style="font-size:0.78rem;margin-top:0.5rem;color:#fbbf24">
+                Supports: JPG, PNG, WEBP
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # ── TAB 8 Health News ──
+    with tab8:
         st.markdown("#### 📰 Health News & Updates")
         st.markdown("<span style='color:#8b949e;font-size:0.88rem'>AI-generated latest health news, tips, and medical updates for India.</span>", unsafe_allow_html=True)
         st.markdown("")
@@ -1218,8 +1548,8 @@ Focus on actionable health information."""
                         save_history("📰 Health News", f"Category: {news_cat}")
                     except Exception as e: st.error(f"❌ {e}")
 
-    # ── TAB 8 Dashboard ──
-    with tab8:
+    # ── TAB 9 Dashboard ──
+    with tab9:
         st.markdown("#### 📊 My Health Dashboard")
         st.markdown("")
 
@@ -1279,19 +1609,37 @@ Focus on actionable health information."""
 
         # History
         st.markdown("##### 📋 Your Health History")
-        my_history = [h for h in st.session_state.health_history if h.get("user") == st.session_state.username]
+        my_history = get_history()
 
         if my_history:
-            if st.button("🗑️  Clear History", key="clr_hist"):
-                st.session_state.health_history = [h for h in st.session_state.health_history if h.get("user") != st.session_state.username]
-                st.rerun()
-            # Export all history
-            export_text = "\n\n".join([f"{h['time']}\n{h['type']}\n{h['summary']}" for h in reversed(my_history)])
-            st.download_button("⬇️ Export All History", data=export_text.encode(), file_name="health_history.txt", mime="text/plain")
-            for h in reversed(my_history):
+            hcol1, hcol2 = st.columns(2)
+            with hcol1:
+                if st.button("🗑️  Clear History", key="clr_hist"):
+                    if use_supabase():
+                        sb_delete_history(st.session_state.username)
+                    else:
+                        st.session_state.health_history = [
+                            h for h in st.session_state.health_history
+                            if h.get("user") != st.session_state.username
+                        ]
+                        save_history_local(st.session_state.health_history)
+                    st.rerun()
+            with hcol2:
+                export_text = "\n\n".join([
+                    f"{h.get('created_at', h.get('time',''))}\n{h['type']}\n{h['summary']}"
+                    for h in my_history
+                ])
+                st.download_button("⬇️ Export History", data=export_text.encode(),
+                                   file_name="health_history.txt", mime="text/plain")
+            for h in my_history:
+                time_str = h.get("created_at", h.get("time", ""))
+                if "T" in str(time_str):
+                    try:
+                        time_str = datetime.fromisoformat(time_str).strftime("%d %b %Y, %I:%M %p")
+                    except: pass
                 st.markdown(f"""
                 <div class="history-card">
-                  <div class="h-date">🕐 {h['time']}</div>
+                  <div class="h-date">🕐 {time_str}</div>
                   <div class="h-type">{h['type']}</div>
                   <div class="h-sum">{h['summary']}</div>
                 </div>
