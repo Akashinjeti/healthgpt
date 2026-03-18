@@ -1122,11 +1122,12 @@ elif st.session_state.page == "app":
     </div>
     """, unsafe_allow_html=True)
 
-    # ── 8 Tabs ──
-    tab1,tab2,tab3,tab4,tab5,tab6,tab7,tab8,tab9 = st.tabs([
+    # ── 10 Tabs ──
+    tab1,tab2,tab3,tab4,tab5,tab6,tab7,tab8,tab9,tab10,tab11 = st.tabs([
         "🩺 Symptoms","💊 Medicine","🥗 Diet",
         "🚨 Emergency","📄 PDF","💬 Chat",
-        "📸 Prescription","📰 News","📊 Dashboard"
+        "📸 Prescription","📰 News","🍽️ Calories",
+        "👨‍⚕️ Doctor Chat","📊 Dashboard"
     ])
 
     # ── TAB 1 Symptoms ──
@@ -1593,8 +1594,378 @@ Focus on actionable health information."""
                         save_history("📰 Health News", f"Category: {news_cat}")
                     except Exception as e: st.error(f"❌ {e}")
 
-    # ── TAB 9 Dashboard ──
+    # ── TAB 9 — AI Calorie Counter ──
     with tab9:
+        st.markdown("#### 🍽️ AI Calorie Counter")
+        st.markdown("<span style='color:#8b949e;font-size:0.88rem'>Upload a photo of your food — AI identifies it and shows calories + nutrition facts.</span>", unsafe_allow_html=True)
+        st.markdown("")
+
+        # Daily tracker in session
+        if "daily_calories" not in st.session_state:
+            st.session_state.daily_calories = []
+
+        # Daily total bar
+        total_cal = sum(item.get("calories", 0) for item in st.session_state.daily_calories)
+        goal_cal  = 2000
+        pct       = min(100, int(total_cal / goal_cal * 100))
+        bar_color = "#4ade80" if pct < 70 else "#fbbf24" if pct < 90 else "#f87171"
+
+        st.markdown(f"""
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:1.1rem 1.4rem;margin-bottom:1rem">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div style="font-size:0.78rem;color:#8b949e;font-weight:600;letter-spacing:0.08em;text-transform:uppercase">Today's Calories</div>
+            <div style="font-family:'Space Grotesk',sans-serif;font-size:1.4rem;font-weight:700;color:{bar_color}">{total_cal} <span style="font-size:0.8rem;color:#8b949e">/ {goal_cal} kcal</span></div>
+          </div>
+          <div style="background:#0d1117;border-radius:6px;height:8px;overflow:hidden">
+            <div style="background:{bar_color};height:100%;width:{pct}%;border-radius:6px;transition:width 0.3s"></div>
+          </div>
+          <div style="font-size:0.72rem;color:#8b949e;margin-top:6px">{pct}% of daily goal</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        food_img = st.file_uploader(
+            "Upload food photo",
+            type=["jpg","jpeg","png","webp"],
+            label_visibility="collapsed",
+            key="food_img"
+        )
+
+        col_meal1, col_meal2 = st.columns(2)
+        with col_meal1:
+            st.markdown('<div class="section-label">Meal Type</div>', unsafe_allow_html=True)
+            meal_type = st.selectbox("Meal", ["Breakfast","Lunch","Dinner","Snack"], label_visibility="collapsed", key="meal_type")
+        with col_meal2:
+            st.markdown('<div class="section-label">Serving Size</div>', unsafe_allow_html=True)
+            serving = st.selectbox("Serving", ["1 serving","Half serving","Double serving","Custom"], label_visibility="collapsed", key="serving")
+
+        if food_img:
+            st.image(food_img, caption="Your food", use_column_width=True)
+
+            if st.button("🍽️  Analyze Calories", use_container_width=True, type="primary", key="cal_btn"):
+                if not api_key:
+                    st.error("⚠️  Enter API key in sidebar.")
+                else:
+                    img_b64  = base64.b64encode(food_img.read()).decode()
+                    mime     = food_img.type or "image/jpeg"
+                    lang_map = {"English":"Respond in English","Telugu (తెలుగు)":"Respond in Telugu","Hindi (हिंदी)":"Respond in Hindi","Tamil (தமிழ்)":"Respond in Tamil"}
+                    p_lang   = lang_map.get(lang, "Respond in English")
+
+                    with st.spinner("🍽️ Analyzing your food..."):
+                        try:
+                            resp = requests.post(
+                                "https://api.groq.com/openai/v1/chat/completions",
+                                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                                json={
+                                    "model": "llama-3.2-11b-vision-preview",
+                                    "messages": [{"role":"user","content":[
+                                        {"type":"image_url","image_url":{"url":f"data:{mime};base64,{img_b64}"}},
+                                        {"type":"text","text":f"""{p_lang}. You are a certified nutritionist and calorie counting expert.
+
+Analyze this food image and provide:
+
+1. 🍽️ Food Identified: (name of the dish/food)
+2. 📏 Estimated Quantity: (portion size visible)
+3. 🔥 Calories: (estimated kcal for {serving})
+4. 💪 Protein: (grams)
+5. 🍚 Carbohydrates: (grams)
+6. 🧈 Fat: (grams)
+7. 🌿 Fiber: (grams)
+8. ✅ Healthy aspects of this food
+9. ⚠️ Things to watch out for
+10. 💡 Healthier alternatives or tips
+
+Also provide a JSON summary at the end in this exact format:
+CALORIES_JSON:{{"food":"name","calories":number,"protein":number,"carbs":number,"fat":number}}
+
+Be specific for Indian foods like biryani, dosa, idli, roti, dal etc.
+If the image is not food, say so politely."""}
+                                    ]}],
+                                    "max_tokens": 1200
+                                },
+                                timeout=40
+                            )
+
+                            if resp.status_code == 200:
+                                result = resp.json()["choices"][0]["message"]["content"].strip()
+
+                                # Extract JSON calories data
+                                cal_data = {"food": "Unknown", "calories": 0, "protein": 0, "carbs": 0, "fat": 0}
+                                if "CALORIES_JSON:" in result:
+                                    try:
+                                        json_str = result.split("CALORIES_JSON:")[1].strip().split("\n")[0]
+                                        cal_data = json.loads(json_str)
+                                        result   = result.split("CALORIES_JSON:")[0].strip()
+                                    except: pass
+
+                                # Add to daily tracker
+                                st.session_state.daily_calories.append({
+                                    "meal": meal_type,
+                                    "food": cal_data.get("food","Food"),
+                                    "calories": cal_data.get("calories", 0),
+                                    "protein": cal_data.get("protein", 0),
+                                    "carbs": cal_data.get("carbs", 0),
+                                    "fat": cal_data.get("fat", 0),
+                                    "time": datetime.now().strftime("%I:%M %p")
+                                })
+
+                                # Show nutrition card
+                                c = cal_data
+                                st.markdown(f"""
+                                <div style="background:#0a1a0f;border:1px solid #14532d;border-left:3px solid #22c55e;
+                                  border-radius:12px;padding:1.25rem;margin:0.75rem 0">
+                                  <div style="font-size:0.68rem;color:#22c55e;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:0.75rem">🍽️ Nutrition Analysis</div>
+                                  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:1rem">
+                                    <div style="background:#0d1117;border-radius:8px;padding:0.75rem;text-align:center">
+                                      <div style="font-family:'Space Grotesk',sans-serif;font-size:1.4rem;font-weight:700;color:#f87171">{c.get("calories",0)}</div>
+                                      <div style="font-size:0.68rem;color:#8b949e;text-transform:uppercase;margin-top:2px">Calories</div>
+                                    </div>
+                                    <div style="background:#0d1117;border-radius:8px;padding:0.75rem;text-align:center">
+                                      <div style="font-family:'Space Grotesk',sans-serif;font-size:1.4rem;font-weight:700;color:#0ea5e9">{c.get("protein",0)}g</div>
+                                      <div style="font-size:0.68rem;color:#8b949e;text-transform:uppercase;margin-top:2px">Protein</div>
+                                    </div>
+                                    <div style="background:#0d1117;border-radius:8px;padding:0.75rem;text-align:center">
+                                      <div style="font-family:'Space Grotesk',sans-serif;font-size:1.4rem;font-weight:700;color:#fbbf24">{c.get("carbs",0)}g</div>
+                                      <div style="font-size:0.68rem;color:#8b949e;text-transform:uppercase;margin-top:2px">Carbs</div>
+                                    </div>
+                                    <div style="background:#0d1117;border-radius:8px;padding:0.75rem;text-align:center">
+                                      <div style="font-family:'Space Grotesk',sans-serif;font-size:1.4rem;font-weight:700;color:#a78bfa">{c.get("fat",0)}g</div>
+                                      <div style="font-size:0.68rem;color:#8b949e;text-transform:uppercase;margin-top:2px">Fat</div>
+                                    </div>
+                                  </div>
+                                </div>
+                                """, unsafe_allow_html=True)
+
+                                st.markdown(f'<div class="diet-message">{result}</div>', unsafe_allow_html=True)
+                                save_history("🍽️ Calorie Count", f"{c.get('food','Food')} — {c.get('calories',0)} kcal")
+
+                                pdf_b = generate_pdf_bytes("Calorie Analysis", result)
+                                st.download_button("📄 Download Report", data=pdf_b, file_name="calorie_report.pdf", mime="application/pdf", key="cal_pdf")
+                                st.rerun()
+                            else:
+                                st.error(f"❌ Error {resp.status_code}. Make sure your image is clear.")
+                        except Exception as e:
+                            st.error(f"❌ {e}")
+        else:
+            st.markdown("""
+            <div style="background:#161b22;border:2px dashed #30363d;border-radius:12px;
+              padding:2.5rem;text-align:center;color:#8b949e;margin-top:1rem">
+              <div style="font-size:2.5rem;margin-bottom:0.75rem">🍽️</div>
+              <div style="font-weight:600;color:#e2e8f0;margin-bottom:0.4rem">Take a photo of your food</div>
+              <div style="font-size:0.82rem">Works for Indian foods too — biryani, dosa, idli, roti & more!</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Today's food log
+        if st.session_state.daily_calories:
+            st.markdown("##### 📋 Today's Food Log")
+            for item in reversed(st.session_state.daily_calories):
+                st.markdown(f"""
+                <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;
+                  padding:0.75rem 1rem;margin:0.4rem 0;display:flex;justify-content:space-between;align-items:center">
+                  <div>
+                    <span style="font-size:0.88rem;color:#e2e8f0;font-weight:500">{item['food']}</span>
+                    <span style="font-size:0.72rem;color:#8b949e;margin-left:8px">{item['meal']} · {item['time']}</span>
+                  </div>
+                  <div style="font-family:'Space Grotesk',sans-serif;font-size:1rem;font-weight:700;color:#f87171">{item['calories']} kcal</div>
+                </div>
+                """, unsafe_allow_html=True)
+            if st.button("🗑️ Clear Today's Log", key="clr_cal"):
+                st.session_state.daily_calories = []
+                st.rerun()
+
+    # ── TAB 10 — Doctor Chat (Premium) ──
+    with tab10:
+        RAZORPAY_KEY = get_secret("RAZORPAY_KEY_ID", "")
+        RAZORPAY_SECRET = get_secret("RAZORPAY_SECRET", "")
+
+        # Session credits
+        if "doctor_credits" not in st.session_state:
+            st.session_state.doctor_credits = 0
+        if "doctor_chat" not in st.session_state:
+            st.session_state.doctor_chat = []
+        if "doctor_session_active" not in st.session_state:
+            st.session_state.doctor_session_active = False
+
+        st.markdown("#### 👨‍⚕️ AI Doctor Chat")
+        st.markdown("<span style='color:#8b949e;font-size:0.88rem'>Deep AI health consultations — detailed, personalized, and confidential.</span>", unsafe_allow_html=True)
+        st.markdown("")
+
+        # Premium banner
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg,rgba(14,165,233,0.1),rgba(124,58,237,0.1));
+          border:1px solid rgba(14,165,233,0.25);border-radius:14px;padding:1.25rem 1.5rem;margin-bottom:1rem">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem">
+            <div>
+              <div style="font-family:'Space Grotesk',sans-serif;font-size:1rem;font-weight:700;color:#e2e8f0">
+                👨‍⚕️ AI Doctor Session
+              </div>
+              <div style="font-size:0.8rem;color:#8b949e;margin-top:3px">
+                In-depth consultation · Full health history · Personalized advice
+              </div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-family:'Space Grotesk',sans-serif;font-size:1.5rem;font-weight:700;color:#0ea5e9">₹49</div>
+              <div style="font-size:0.72rem;color:#8b949e">per 24-hour session</div>
+            </div>
+          </div>
+          <div style="margin-top:0.75rem;display:flex;gap:8px;flex-wrap:wrap">
+            <span style="font-size:0.72rem;background:rgba(34,197,94,0.1);color:#4ade80;border:1px solid rgba(34,197,94,0.2);padding:3px 10px;border-radius:20px">✅ Unlimited messages</span>
+            <span style="font-size:0.72rem;background:rgba(14,165,233,0.1);color:#38bdf8;border:1px solid rgba(14,165,233,0.2);padding:3px 10px;border-radius:20px">🔒 Private & secure</span>
+            <span style="font-size:0.72rem;background:rgba(124,58,237,0.1);color:#a78bfa;border:1px solid rgba(124,58,237,0.2);padding:3px 10px;border-radius:20px">📋 Saved to history</span>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Credits display
+        credits = st.session_state.doctor_credits
+        st.markdown(f"""
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;
+          padding:0.9rem 1.2rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center">
+          <div style="font-size:0.85rem;color:#8b949e">Your session credits</div>
+          <div style="font-family:'Space Grotesk',sans-serif;font-size:1.3rem;font-weight:700;
+            color:{'#4ade80' if credits > 0 else '#f87171'}">
+            {credits} {"session" if credits == 1 else "sessions"}
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Payment section
+        if not st.session_state.doctor_session_active:
+            st.markdown("##### 💳 Buy a Session")
+
+            plan = st.radio("Choose plan", [
+                "₹49 — 1 session (24 hrs)",
+                "₹199 — 5 sessions",
+                "₹499 — 15 sessions"
+            ], horizontal=True, key="plan_sel")
+
+            amount_map = {
+                "₹49 — 1 session (24 hrs)": (4900, 1),
+                "₹199 — 5 sessions": (19900, 5),
+                "₹499 — 15 sessions": (49900, 15),
+            }
+            amount_paise, sessions_count = amount_map[plan]
+
+            if RAZORPAY_KEY:
+                # Razorpay checkout via HTML component
+                st.components.v1.html(f"""
+                <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+                <button id="rzp-btn" style="
+                  width:100%;padding:14px;
+                  background:linear-gradient(135deg,#0ea5e9,#7c3aed);
+                  color:white;border:none;border-radius:10px;
+                  font-size:15px;font-weight:700;cursor:pointer;
+                  font-family:Inter,sans-serif;letter-spacing:0.03em">
+                  💳 Pay {plan.split('—')[0].strip()} with Razorpay
+                </button>
+                <div id="pay-status" style="margin-top:10px;font-size:13px;color:#4ade80;font-family:Inter,sans-serif;text-align:center"></div>
+                <script>
+                  document.getElementById('rzp-btn').onclick = function() {{
+                    var options = {{
+                      key: '{RAZORPAY_KEY}',
+                      amount: {amount_paise},
+                      currency: 'INR',
+                      name: 'HealthGPT ULTRA',
+                      description: 'AI Doctor Chat Session',
+                      image: 'https://healthgptultra.streamlit.app/favicon.ico',
+                      handler: function(response) {{
+                        document.getElementById('pay-status').innerHTML =
+                          '✅ Payment successful! Payment ID: ' + response.razorpay_payment_id +
+                          '<br>Refresh the page to activate your session.';
+                      }},
+                      prefill: {{ name: 'HealthGPT User', email: '' }},
+                      theme: {{ color: '#0ea5e9' }}
+                    }};
+                    var rzp = new Razorpay(options);
+                    rzp.open();
+                  }};
+                </script>
+                """, height=120)
+
+                st.markdown("<div style='font-size:0.75rem;color:#8b949e;text-align:center;margin-top:0.5rem'>Secure payment via Razorpay · UPI · Cards · Net Banking</div>", unsafe_allow_html=True)
+            else:
+                st.warning("⚠️ Add RAZORPAY_KEY_ID to Streamlit secrets to enable payments.")
+
+            # Demo activation for testing
+            st.divider()
+            st.markdown("<div style='font-size:0.8rem;color:#8b949e;text-align:center'>For testing — activate a free demo session</div>", unsafe_allow_html=True)
+            if st.button("🎁  Activate Demo Session (Free)", use_container_width=True, key="demo_session"):
+                st.session_state.doctor_credits += 1
+                st.session_state.doctor_session_active = True
+                st.success("✅ Demo session activated! You have 1 free session.")
+                st.rerun()
+
+        # Active doctor chat
+        if st.session_state.doctor_session_active or st.session_state.doctor_credits > 0:
+            if not st.session_state.doctor_session_active and st.session_state.doctor_credits > 0:
+                if st.button("🚀  Start Doctor Session", use_container_width=True, type="primary", key="start_sess"):
+                    st.session_state.doctor_session_active = True
+                    st.session_state.doctor_credits -= 1
+                    st.session_state.doctor_chat = []
+                    st.rerun()
+
+            if st.session_state.doctor_session_active:
+                st.markdown("""
+                <div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);
+                  border-radius:8px;padding:0.6rem 1rem;margin-bottom:0.75rem;font-size:0.8rem;color:#4ade80">
+                  ✅ Session active — Ask anything about your health. Detailed, personalized responses.
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Show doctor chat history
+                if st.session_state.doctor_chat:
+                    for msg in st.session_state.doctor_chat:
+                        css = "chat-user" if msg["role"] == "user" else "chat-ai"
+                        st.markdown(f'<div class="{css}">{msg["content"]}</div>', unsafe_allow_html=True)
+
+                # Input
+                doc_input = st.text_area(
+                    "DocInput",
+                    placeholder="Describe your symptoms, health history, medications, or ask any health question in detail...",
+                    label_visibility="collapsed",
+                    height=100,
+                    key="doc_input"
+                )
+
+                dc1, dc2 = st.columns([4,1])
+                with dc1:
+                    doc_send = st.button("👨‍⚕️  Send to Doctor AI", use_container_width=True, type="primary", key="doc_send")
+                with dc2:
+                    if st.button("🔚 End", use_container_width=True, key="end_sess"):
+                        st.session_state.doctor_session_active = False
+                        save_history("👨‍⚕️ Doctor Chat", f"{len(st.session_state.doctor_chat)} messages")
+                        st.rerun()
+
+                if doc_send and doc_input:
+                    if not api_key:
+                        st.error("⚠️ Enter API key in sidebar.")
+                    else:
+                        system = {"role":"system","content":f"""You are an experienced AI medical consultant with deep knowledge of medicine, pharmacology, and health.
+{lang_inst}. You provide thorough, detailed, and personalized health consultations.
+
+Patient profile:
+- Username: {st.session_state.username}
+- This is a PREMIUM consultation — provide detailed, comprehensive answers
+- Consider the full context of the conversation
+- Give specific, actionable advice
+- Mention when to seek emergency care
+- Always remind: This is AI guidance — consult a real doctor for serious conditions
+
+Be thorough, empathetic, and professional like a real doctor."""}
+
+                        st.session_state.doctor_chat.append({"role":"user","content":doc_input})
+                        msgs = [system] + st.session_state.doctor_chat
+
+                        with st.spinner("👨‍⚕️ Doctor AI is thinking..."):
+                            try:
+                                reply = call_groq_chat(api_key, msgs)
+                                st.session_state.doctor_chat.append({"role":"assistant","content":reply})
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ {e}")
+
+    # ── TAB 11 Dashboard ──
+    with tab11:
         st.markdown("#### 📊 My Health Dashboard")
         st.markdown("")
 
